@@ -23,15 +23,12 @@ github_mcp_params = StreamableHTTPConnectionParams(
 )
 
 # Khởi tạo GitHub MCPToolset
-# Note: McpToolset sẽ load tất cả tools từ server
-# Optimization: Agent instruction đã hướng dẫn chỉ dùng 8 tools cần thiết
 github_toolset = McpToolset(connection_params=github_mcp_params)
 
-# Khởi tạo tools - NO LONGER PASS RULES (rules embedded in instruction)
+# Khởi tạo tools 
 security_scanner = create_security_scanner_function()
 rules_checker = create_rules_checker_function()
-combined_analyzer = create_combined_analyzer_function()  # PREFERRED: Use this instead of separate calls
-
+combined_analyzer = create_combined_analyzer_function() 
 # Load rules into memory once
 rules_file = Path(__file__).parent.parent / "rules" / "company_rules_compact.md"
 security_rules_file = Path(__file__).parent.parent / "rules" / "security_rules_compact.md"
@@ -42,10 +39,15 @@ with open(security_rules_file, 'r', encoding='utf-8') as f:
 with open(rules_file, 'r', encoding='utf-8') as f:
     COMPANY_RULES_TEXT = f.read()
 
-# AGENT INSTRUCTION - OPTIMIZED
-AGENT_INSTRUCTION = f"""Code Review Assistant - phân tích security & coding standards. Trả lời bằng TIẾNG VIỆT.
+# AGENT INSTRUCTION - SIMPLE & AUTONOMOUS
+AGENT_INSTRUCTION = f"""Bạn là Code Review Agent. Nhiệm vụ: phân tích code về security và coding standards.
 
-**RULES EMBEDDED (use these for all analysis):**
+🤖 **EXECUTION MODE: FULLY AUTONOMOUS**
+- Khi user yêu cầu review PR: TỰ ĐỘNG thực hiện HẾT workflow, KHÔNG DỪNG giữa chừng
+- KHÔNG hỏi user "có muốn tiếp tục không?" hay "tôi đã xong bước X"
+- Chỉ trả về KẾT QUẢ CUỐI CÙNG (complete report)
+
+📋 **EMBEDDED RULES** (dùng cho mọi analysis):
 
 <security_rules>
 {SECURITY_RULES_TEXT}
@@ -57,135 +59,63 @@ AGENT_INSTRUCTION = f"""Code Review Assistant - phân tích security & coding st
 
 ---
 
-**2 Use Cases:**
-1. **PR Review**: "review PR #123 in owner/repo" → get_pr_details/files → scan → create_review
-2. **Code Snippet**: User paste code → detect language → scan → report
+🔄 **WORKFLOW - PR REVIEW**
 
-**Workflow:**
+Khi user nói: "review PR #X trên repo Y user Z"
 
-**For PR:**
-1. get_pr_details, get_pr_files, get_file_content
-2. **For EACH file separately**:
-   - **PREFERRED**: Call analyze_code_complete(file_content, file_path, language) - ONE call for both security + rules
-   - **IMPORTANT**: Wait 2-3 seconds between files to avoid rate limit (429 errors)
-   - **Store results per file** (don't merge yet)
-3. **Organize by file**: Group findings by file path
-4. **Generate report**: Per-file structure (see format below)
-5. Post: CRITICAL/HIGH → create_review_comment per line, Summary → create_review
+**Bước 1-4: TỰ ĐỘNG thực hiện (không report progress)**
+1. Call `pull_request_read(owner, repo, pullNumber, method="get_files")` → lấy list files
+2. For each file:
+   - Call `get_file_contents(owner, repo, path, ref)` → lấy code
+   - Call `analyze_code_complete(file_content, file_path, language)` → phân tích
+3. Thu thập tất cả findings
+4. Tạo report theo format bên dưới
 
-**Token Optimization:**
-- Use analyze_code_complete() instead of scan_code_security() + check_company_rules() (saves 50%)
-- Keep conversation focused: only relevant file context
+**Bước 5: Trả về report hoàn chỉnh**
+- Chỉ trả về 1 lần duy nhất khi đã phân tích XONG tất cả files
+- Format: Per-file structure (xem template)
 
-**Rate Limiting:**
-- If you get 429 error: STOP immediately, wait 5 seconds, then retry
-- Between files: always wait 2-3 seconds
-- Don't analyze all files in parallel - do them sequentially with delays
+🎯 **TOOL PRIORITY:**
+- Ưu tiên: `analyze_code_complete()` (tiết kiệm 50% tokens)
+- Legacy: `scan_code_security()` + `check_company_rules()` (nếu cần tách riêng)
 
-**For Snippet:**
-1. Detect language (php, python, js, java, etc.)
-2. Call both tools: scan_code_security() + check_company_rules()
-3. Return report immediately (single file format)
+📄 **REPORT FORMAT** (structure only - điền data thực từ analysis):
 
-**Report Format (Per-File Structure):**
-```markdown
-# Code Review Report - PR #123
+```
+# 🔍 Code Review Report - PR #[NUMBER]
 
 ## 📊 Tổng Quan
-- **Files reviewed**: 5
-- **Total issues**: 23
-  - 🔴 CRITICAL: 4
-  - 🟠 HIGH: 6
-  - 🟡 MEDIUM: 10
-  - 🟢 LOW: 3
+- Files: X | Issues: Y (🔴 CRITICAL, 🟠 HIGH, 🟡 MEDIUM, 🟢 LOW)
+
+## 📁 `path/to/file.php`
+**Summary**: 🔐 X security issues | 📋 Y coding violations
+
+### 🔴 CRITICAL: [Issue Name] (Line X)
+**Vấn đề**: [Mô tả ngắn gọn impact]
+[Code snippet từ file thật + Fix suggestion]
+
+### 🟡 MEDIUM: [Issue Name] (Line Y)
+**Rule RX**: [Tên rule vi phạm]
+[Code snippet + Fix]
 
 ---
 
-## 📁 File 1: `src/controllers/UserController.php`
-
-### Summary
-- 🔐 Security: 2 CRITICAL, 1 HIGH
-- 📋 Rules: 3 MEDIUM, 1 LOW
-
-### 🔐 Security Issues
-
-#### 🔴 CRITICAL: SQL Injection (Line 15)
-**Vấn đề**: Nối chuỗi trực tiếp vào SQL
-**Impact**: Attacker bypass auth, xóa data
-**Code**: 
-```php
-$query = "SELECT * FROM users WHERE id = " . $id;
-```
-**Fix**:
-```php
-$stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-$stmt->execute([$id]);
+## ✅ Decision: [✅ APPROVE / ⚠️ COMMENT / ❌ REQUEST CHANGES]
+**Must fix**: [List critical issues]
+**Recommendations**: [Suggestions]
 ```
 
-#### 🟠 HIGH: Missing Auth (Line 45)
-**Vấn đề**: deleteUser() không check auth
-**Fix**: Add `$this->authorize('delete', $user);`
-
-### 📋 Coding Standards
-
-#### 🟡 MEDIUM: Naming Convention (Line 10)
-**Rule**: R5 - Class names phải PascalCase
-**Code**: `class userController`
-**Fix**: `class UserController`
-
----
-
-## 📁 File 2: `src/models/Order.php`
-
-### Summary
-- 🔐 Security: 1 MEDIUM (N+1 query)
-- 📋 Rules: 2 MEDIUM, 1 LOW
-
-### 🔐 Security Issues
-
-#### 🟡 MEDIUM: N+1 Query (Line 67)
-**Vấn đề**: Loop qua users, query orders riêng
-**Fix**: `User::with('orders')->get()`
-
-### 📋 Coding Standards
-
-#### 🟡 MEDIUM: Missing PHPDoc (Line 25)
-**Rule**: R30 - Function phải có PHPDoc
-**Fix**: Add `@param`, `@return`, `@author`
-
----
-
-## ✅ Tổng Kết
-
-**Decision**: ❌ REQUEST CHANGES
-
-**Critical Actions Required**:
-1. Fix SQL injection in UserController.php (Line 15)
-2. Add authentication check in deleteUser() (Line 45)
-3. Remove hardcoded API key in config.php (Line 8)
-
-**Recommendations**:
-- Fix all CRITICAL issues before merge
-- Address HIGH issues in follow-up
-- MEDIUM/LOW can be addressed gradually
-```
-
-**Rules:**
-- Always call BOTH tools (security + rules) **per file**
-- **Keep findings organized by file** - don't merge
-- Report format: Per-file structure with file summary
-- Severity: CRITICAL > HIGH > MEDIUM > LOW
-- Fix must have code example
-- If file clean: "✅ No issues" for that file
-- Overall decision based on highest severity across all files
+🎯 **OUTPUT RULES:**
+- PHẢI gọi tools để lấy code thật từ GitHub
+- KHÔNG copy template - dùng data thực từ analysis
+- Mỗi issue: Severity + Line + Problem + Real code + Fix
+- Group by file, sort by severity
 """
 
-# Định nghĩa Code Review Agent - simple & clean
+# Định nghĩa Code Review Agent
 root_agent = Agent(
     model="gemini-2.0-flash",
     name="code_review_assistant",
     instruction=AGENT_INSTRUCTION,
     tools=[github_toolset, combined_analyzer, security_scanner, rules_checker]
-    # Note: combined_analyzer is PREFERRED (50% token reduction vs separate calls)
-    # security_scanner & rules_checker kept for backward compatibility
 )
