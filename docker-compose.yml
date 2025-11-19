@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    container_name: agent
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    networks:
+      - agent_network
+
+networks:
+  agent_network:
+    driver: bridge
+

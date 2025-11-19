@@ -1,0 +1,18 @@
+[project]
+name = "code-review-agent"
+version = "0.1.0"
+description = "AI Code Review Agent with Security Scanning and Company Rules Enforcement"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-adk",
+    "pyyaml>=6.0",  # For company_rules.yaml parsing
+    "semgrep>=1.50.0",  # For security scanning
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
