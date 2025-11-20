@@ -25,29 +25,19 @@ def create_combined_analyzer_function():
             language: Programming language (python, php, javascript, java, go, etc.)
             
         Returns:
-            Instruction to analyze code (agent will use embedded rules)
+            JSON directive with file content for analysis
         """
         
-        # Return friendly analysis request
-        return f"""Đang phân tích file: {file_path}
-
-📋 **File Info**
-- Language: {language}
-- Lines: {len(file_content.splitlines())}
-
-🔍 **Analysis Tasks**
-- Security scan (11 categories from <security_rules>)
-- Coding standards check (43 rules from <company_rules>)
-
----
-
-**Code to analyze:**
-```{language}
-{file_content}
-```
-
----
-
-Hãy check kỹ từng dòng code và trả về kết quả theo format JSON gọn gàng nhé! 🎯"""
+        # Return structured JSON directive
+        result = {
+            "action": "ANALYZE_NOW",
+            "file_path": file_path,
+            "language": language,
+            "lines_count": len(file_content.splitlines()),
+            "code": file_content,
+            "instruction": "Analyze this code using your embedded <security_rules> and <company_rules>. Find all security vulnerabilities and coding standard violations. Return findings in the report format."
+        }
+        
+        return json.dumps(result, ensure_ascii=False, indent=2)
     
     return analyze_code_complete
