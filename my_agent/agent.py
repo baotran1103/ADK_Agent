@@ -9,7 +9,8 @@ from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 # Import tools
-from tools.combined_analyzer import create_combined_analyzer_function
+from tools.gemini_analyzer import create_gemini_analyzer_function
+from tools.semgrep_scanner import create_semgrep_scanner_function
 from tools.slack_notifier import create_slack_notifier_function
 
 # Kết nối Remote GitHub MCP server qua HTTP với PAT
@@ -21,14 +22,30 @@ github_mcp_params = StreamableHTTPConnectionParams(
     }
 )
 
-# Khởi tạo GitHub MCPToolset
-github_toolset = McpToolset(connection_params=github_mcp_params)
+# Khởi tạo GitHub MCPToolset với tool_filter (chỉ load tools cần thiết)
+github_toolset = McpToolset(
+    connection_params=github_mcp_params,
+    tool_filter=[
+        # Pull request tools
+        "pull_request_read",
+        "list_pull_requests",
+        "get_pull_request",
+        "add_comment_to_pending_review",  # Add comment to PR
+        "merge_pull_request",  # Merge PR (only if no CRITICAL/HIGH)
+        
+        # File content
+        "get_file_contents",
+        
+        # User info
+        "get_user"
+    ]
+)
 
-# Khởi tạo tools
-combined_analyzer = create_combined_analyzer_function()
-slack_notifier = create_slack_notifier_function() 
+gemini_analyzer = create_gemini_analyzer_function()      
+semgrep_scanner = create_semgrep_scanner_function()    
+slack_notifier = create_slack_notifier_function()   
 # Load instruction and rules from files
-instruction_file = Path(__file__).parent.parent / "docs" / "AGENT_INSTRUCTION.md"
+instruction_file = Path(__file__).parent.parent / "docs" / "AGENT_INSTRUCTION_V7.md"
 rules_file = Path(__file__).parent.parent / "rules" / "company_rules_compact.md"
 security_rules_file = Path(__file__).parent.parent / "rules" / "security_rules_compact.md"
 
@@ -51,14 +68,15 @@ AGENT_INSTRUCTION = BASE_INSTRUCTION.replace(
     COMPANY_RULES_TEXT
 )
 
-# Định nghĩa Code Review Agent
+# Định nghĩa Code Review Agent - Hybrid Approach
 root_agent = Agent(
     model="gemini-2.0-flash",
     name="code_review_assistant",
     instruction=AGENT_INSTRUCTION,
     tools=[
-        github_toolset,           # GitHub operations (pull_request_read, get_file_contents)
-        combined_analyzer,        # Security + company rules analysis
-        slack_notifier           # Slack notifications
+        github_toolset,           # GitHub: pull_request_read, get_file_contents
+        gemini_analyzer,          # Fast: AI analysis with embedded rules
+        semgrep_scanner,          # Deep: Security verification (CRITICAL/HIGH only)
+        slack_notifier           # Notifications
     ]
 )

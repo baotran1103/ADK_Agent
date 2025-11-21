@@ -8,6 +8,13 @@ WORKDIR /app
 ENV UV_LINK_MODE=copy
 ENV PYTHONUNBUFFERED=1
 
+# Install Semgrep for security scanning
+RUN apt-get update && \
+    apt-get install -y curl && \
+    pip install --no-cache-dir semgrep && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 ADD . /app
 
 # Install the project's dependencies using the lockfile and settings

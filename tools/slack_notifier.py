@@ -17,17 +17,15 @@ def create_slack_notifier_function():
     def send_slack_notification(
         message: str,
         severity: str = "INFO",
-        channel: Optional[str] = None,
-        include_details: bool = True
+        channel: Optional[str] = None
     ) -> str:
         """
         Send notification to Slack channel.
         
         Args:
-            message: Main notification message
+            message: Full markdown report or notification message
             severity: Severity level (CRITICAL, HIGH, MEDIUM, LOW, INFO)
             channel: Slack channel (default from env)
-            include_details: Include detailed formatting
             
         Returns:
             JSON string with status
@@ -54,48 +52,11 @@ def create_slack_notifier_function():
         
         emoji = emoji_map.get(severity.upper(), "📢")
         
-        # Build Slack message payload
-        if include_details:
-            payload = {
-                "blocks": [
-                    {
-                        "type": "header",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"{emoji} Code Review Alert",
-                            "emoji": True
-                        }
-                    },
-                    {
-                        "type": "section",
-                        "fields": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*Severity:*\n{severity}"
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*Timestamp:*\n<!date^{int(__import__('time').time())}^{{date_short_pretty}} {{time}}|Now>"
-                            }
-                        ]
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": message
-                        }
-                    },
-                    {
-                        "type": "divider"
-                    }
-                ]
-            }
-        else:
-            # Simple text message
-            payload = {
-                "text": f"{emoji} {message}"
-            }
+        # Build simple Slack message (plain text for reliability)
+        # Full markdown report is preserved in message parameter
+        payload = {
+            "text": f"{emoji} *{severity}*\n\n{message}"
+        }
         
         # Add channel override if provided
         if channel:
